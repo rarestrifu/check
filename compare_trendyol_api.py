@@ -361,8 +361,10 @@ def accept_cookies(page):
 def fetch_new_products_via_page_fetch(page, listing_url: str):
     params_base = extract_query_params(listing_url)
 
-    page.goto(listing_url, timeout=60000, wait_until="networkidle")
+    page.goto(listing_url, timeout=120000, wait_until="domcontentloaded")
+    page.wait_for_timeout(1500)
     accept_cookies(page)
+    page.wait_for_timeout(800)
 
     js = """
     async ({ apiBase, baseParams }) => {
@@ -676,4 +678,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
