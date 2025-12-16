@@ -16,7 +16,7 @@ SMTP_PORT = 587
 EMAIL_USER = "bluegaming764@gmail.com"
 EMAIL_FROM = EMAIL_USER
 EMAIL_TO = "bluegaming764@gmail.com"
-EMAIL_PASSWORD = "jbzr fbiu nqxm ixfm"  # App Password
+EMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 
 # Settings
 THRESHOLD = 40            # dacă vrei alertă doar peste 40
@@ -156,3 +156,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
