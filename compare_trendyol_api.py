@@ -366,60 +366,75 @@ def fetch_new_products_via_page_fetch(page, listing_url: str):
     accept_cookies(page)
     page.wait_for_timeout(800)
 
-    js = """
+    js = r"""
     async ({ apiBase, baseParams }) => {
-        const paramsBase = new URLSearchParams();
-        Object.entries(baseParams).forEach(([k, v]) => {
-            if (v != null) paramsBase.append(k, v);
-        });
-
-        async function fetchPage(pi) {
-            const params = new URLSearchParams(paramsBase);
-            params.set("pi", String(pi));
-            params.set("culture", "ro-RO");
-            params.set("storefrontId", "29");
-            params.set("channelId", "1");
-            params.set("pathModel", "sr");
-
-            const url = apiBase + "?" + params.toString();
-            const resp = await fetch(url, { credentials: "include" });
-            if (!resp.ok) {
-              let txt = "";
-              try { txt = await resp.text(); } catch (e) {}
-              return { products: [], next: false, status: resp.status, error: (txt || "").slice(0, 200) };
+      const paramsBase = new URLSearchParams();
+      Object.entries(baseParams).forEach(([k, v]) => {
+        if (v != null) paramsBase.append(k, v);
+      });
+    
+      async function fetchPage(pi) {
+        const params = new URLSearchParams(paramsBase);
+        params.set("pi", String(pi));
+        params.set("culture", "ro-RO");
+        params.set("storefrontId", "29");
+        params.set("channelId", "1");
+        params.set("pathModel", "sr");
+    
+        const url = apiBase + "?" + params.toString();
+    
+        let resp;
+        try {
+          resp = await fetch(url, {
+            credentials: "include",
+            headers: {
+              "accept": "application/json, text/plain, */*",
+              "accept-language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
             }
-
-            const data = await resp.json();
-            const arr = data.products || [];
-            const hasNext = !!(data._links && data._links.next);
-
-            return { products: arr, next: hasNext, status: 200, error: "" };
+          });
+        } catch (e) {
+          // aici e cazul tău: Failed to fetch
+          return { products: [], next: false, status: -1, error: String(e) };
         }
-
-        let all = [];
-        let pageIndex = 1;
-        let running = true;
-
-        while (running) {
-            const batch = [await fetchPage(pageIndex)];
-        
-            const b = batch[0];
-            if (b.status !== 200) {
-                return { status: b.status, error: b.error || "", products: all };
-            }
-        
-            all = all.concat(b.products);
-            if (!b.next) {
-                running = false;
-                break;
-            }
-        
-            pageIndex += 1;
-            if (pageIndex > 200) break;
+    
+        if (!resp.ok) {
+          let txt = "";
+          try { txt = await resp.text(); } catch (e) {}
+          return { products: [], next: false, status: resp.status, error: (txt || "").slice(0, 300) };
         }
-        return { status: 200, error: "", products: all };
+    
+        const data = await resp.json();
+        const arr = data.products || [];
+        const hasNext = !!(data._links && data._links.next);
+    
+        return { products: arr, next: hasNext, status: 200, error: "" };
+      }
+    
+      let all = [];
+      let pageIndex = 1;
+    
+      while (true) {
+        const b = await fetchPage(pageIndex);
+    
+        if (b.status !== 200) {
+          return { status: b.status, error: b.error || "", products: all };
+        }
+    
+        all = all.concat(b.products);
+    
+        if (!b.next) break;
+    
+        pageIndex += 1;
+        if (pageIndex > 200) break;
+    
+        // mic delay anti-rate-limit
+        await new Promise(r => setTimeout(r, 200));
+      }
+    
+      return { status: 200, error: "", products: all };
     }
     """
+
 
     result = page.evaluate(js, {"apiBase": API_BASE, "baseParams": params_base})
     status = result.get("status", 200)
@@ -633,7 +648,13 @@ def main():
                 "--window-position=-2000,-2000",
             ],
         )
-        context = browser.new_context()
+        context = browser.new_context(
+            locale="ro-RO",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        )
+        context.set_extra_http_headers({
+            "Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
+        })
         page = context.new_page()
 
         for label, cfg in CATEGORIES.items():
@@ -700,6 +721,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
