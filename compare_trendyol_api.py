@@ -27,6 +27,11 @@ MIN_DROP_PERCENT = 25.0
 WELCOME_DISCOUNT_PERCENT = 30.0  # 0.0 dacă vrei fără cod
 MIN_PRICE_LINK = 130
 
+COOLDOWN_HOURS = 2
+COOLDOWN_SECONDS = int(COOLDOWN_HOURS * 3600)
+
+STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
+
 EXCLUDED_KEYWORDS = {
     "șlapi",
     "fălapi",
@@ -123,6 +128,76 @@ def download_image_bytes(url: str):
 # ============================================================
 #  BRAND / PRICE HELPERS
 # ============================================================
+
+def _ensure_state_dir():
+    os.makedirs(STATE_DIR, exist_ok=True)
+
+def _cache_path(label: str) -> str:
+    _ensure_state_dir()
+    safe = "".join(c for c in label if c.isalnum() or c in ("_", "-")).strip()
+    return os.path.join(STATE_DIR, f"sent_cache_{safe}.json")
+
+def load_sent_cache(label: str) -> dict:
+    path = _cache_path(label)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def save_sent_cache(label: str, cache: dict) -> None:
+    path = _cache_path(label)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def apply_cooldown_filter(hits: list, label: str) -> list:
+    """
+    Trimite un produs doar dacă:
+    - nu a mai fost trimis niciodată
+    - SAU au trecut >= COOLDOWN_SECONDS
+    - SAU s-a schimbat prețul new_price față de ultima trimitere
+    """
+    if not hits:
+        return hits
+
+    now = int(time.time())
+    cache = load_sent_cache(label)
+
+    filtered = []
+    for it in hits:
+        key = str(it.get("model_id") or it.get("url") or it.get("name"))
+        prev = cache.get(key)
+
+        last_ts = int(prev.get("ts", 0)) if isinstance(prev, dict) else 0
+        last_price = float(prev.get("new_price", -1)) if isinstance(prev, dict) else -1
+
+        price_now = float(it.get("new_price", -1))
+
+        should_send = (
+            not prev
+            or (now - last_ts) >= COOLDOWN_SECONDS
+            or abs(price_now - last_price) >= 0.01
+        )
+
+        if should_send:
+            filtered.append(it)
+            cache[key] = {"ts": now, "new_price": price_now}
+
+    # curățare: șterge intrări foarte vechi (ex: > 14 zile) ca să nu crească la infinit
+    cutoff = now - 14 * 24 * 3600
+    cache = {k: v for k, v in cache.items() if isinstance(v, dict) and int(v.get("ts", 0)) >= cutoff}
+
+    save_sent_cache(label, cache)
+
+    if len(filtered) != len(hits):
+        print(f"🕒 Cooldown: {len(hits) - len(filtered)} item(s) skipped in [{label}]")
+
+    return filtered
 
 def extract_brand(p: dict, url: str = ""):
     for key in ("brand", "brandName"):
@@ -549,6 +624,7 @@ def main_single(products_file, listing_url, label, progress=None, page=None):
         brand = extract_brand(new_p, url) or extract_brand(old_p, url)
 
         entry = {
+            "model_id": model_id,
             "brand": brand,
             "name": display_name,
             "url": url,
@@ -593,6 +669,7 @@ def main_single(products_file, listing_url, label, progress=None, page=None):
     with open(f"missing_{label}.json", "w", encoding="utf-8") as f:
         json.dump(missing_products, f, indent=2, ensure_ascii=False)
 
+    hits = apply_cooldown_filter(hits, label)
     send_email(hits, label)
 
     return {
@@ -724,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
