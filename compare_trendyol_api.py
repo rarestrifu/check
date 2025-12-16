@@ -383,13 +383,17 @@ def fetch_new_products_via_page_fetch(page, listing_url: str):
 
             const url = apiBase + "?" + params.toString();
             const resp = await fetch(url, { credentials: "include" });
-            if (!resp.ok) return { products: [], next: false };
+            if (!resp.ok) {
+              let txt = "";
+              try { txt = await resp.text(); } catch (e) {}
+              return { products: [], next: false, status: resp.status, error: (txt || "").slice(0, 200) };
+            }
 
             const data = await resp.json();
             const arr = data.products || [];
             const hasNext = !!(data._links && data._links.next);
 
-            return { products: arr, next: hasNext };
+            return { products: arr, next: hasNext, status: 200, error: "" };
         }
 
         let all = [];
@@ -397,29 +401,33 @@ def fetch_new_products_via_page_fetch(page, listing_url: str):
         let running = true;
 
         while (running) {
-            const batch = await Promise.all([
-                fetchPage(pageIndex),
-                fetchPage(pageIndex + 1),
-                fetchPage(pageIndex + 2)
-            ]);
-
-            for (let i = 0; i < batch.length; i++) {
-                const b = batch[i];
-                all = all.concat(b.products);
-                if (!b.next) {
-                    running = false;
-                    break;
-                }
+            const batch = [await fetchPage(pageIndex)];
+        
+            const b = batch[0];
+            if (b.status !== 200) {
+                return { status: b.status, error: b.error || "", products: all };
             }
-            pageIndex += 3;
+        
+            all = all.concat(b.products);
+            if (!b.next) {
+                running = false;
+                break;
+            }
+        
+            pageIndex += 1;
             if (pageIndex > 200) break;
         }
-
-        return { status: 200, products: all };
+        return { status: 200, error: "", products: all };
     }
     """
 
     result = page.evaluate(js, {"apiBase": API_BASE, "baseParams": params_base})
+    status = result.get("status", 200)
+    if status != 200:
+        print(f"[FAST API ERROR] status={status} url={listing_url}")
+        print(f"[FAST API ERROR] snippet={result.get('error','')}")
+        raise RuntimeError(f"API blocked/failed (status={status})")
+
     products = result.get("products", [])
 
     print(f"[FAST API] {listing_url} → {len(products)} products")
@@ -619,7 +627,7 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=False,
+            headless=True,
             args=[
                 "--window-size=1280,720",
                 "--window-position=-2000,-2000",
@@ -639,14 +647,28 @@ def main():
                 TimeRemainingColumn(),
                 expand=True,
             ) as progress:
-                result = main_single(
-                    cfg["file"],
-                    cfg["listing"],
-                    label,
-                    progress=progress,
-                    page=page,
-                )
-                summary.append(result)
+                try:
+                    result = main_single(
+                        cfg["file"],
+                        cfg["listing"],
+                        label,
+                        progress=progress,
+                        page=page,
+                    )
+                    summary.append(result)
+                except Exception as e:
+                    print(f"❌ CATEGORY FAILED: {label} | {e}")
+                    summary.append({
+                        "label": label,
+                        "count": 0,
+                        "old_total": 0,
+                        "missing": 0,
+                        "hits": 0,
+                        "duration": 0,
+                    })
+                    continue
+
+
 
         browser.close()
 
@@ -678,5 +700,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
