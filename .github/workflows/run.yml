@@ -30,6 +30,17 @@ jobs:
           pip install playwright certifi rich
           python -m playwright install --with-deps chromium
 
+      - name: Set cache date
+        run: echo "CACHE_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
+      
+      - name: Cache state (cooldown)
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: trendyol-state-${{ github.ref_name }}-${{ env.CACHE_DATE }}
+          restore-keys: |
+            trendyol-state-${{ github.ref_name }}-
+
       - name: Run compare_trendyol_api.py
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
