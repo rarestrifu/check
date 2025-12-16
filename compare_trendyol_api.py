@@ -46,10 +46,10 @@ EMAIL_ENABLED = True
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-EMAIL_FROM = "trendy-compare@gmail.com"
 EMAIL_TO = "bluegaming764@gmail.com"
 EMAIL_USER = "bluegaming764@gmail.com"
-EMAIL_PASSWORD = "jbzr fbiu nqxm ixfm"
+EMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
+EMAIL_FROM = EMAIL_USER
 
 API_BASE = "https://apigw.trendyol.com/discovery-sfint-search-service/api/search/products"
 
@@ -676,3 +676,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
