@@ -380,7 +380,9 @@ def fetch_new_products_via_page_fetch(page, listing_url: str):
         params.set("storefrontId", "29");
         params.set("channelId", "1");
         params.set("pathModel", "sr");
-    
+        params.set("countryCode", "RO");
+        params.set("language", "ro");
+
         const url = apiBase + "?" + params.toString();
     
         let resp;
@@ -390,6 +392,7 @@ def fetch_new_products_via_page_fetch(page, listing_url: str):
             headers: {
               "accept": "application/json, text/plain, */*",
               "accept-language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
+              "x-country-code": "RO",
             }
           });
         } catch (e) {
@@ -614,7 +617,7 @@ CATEGORIES = {
     },
     "running": {
         "file": "products_ro_running.json",
-        "listing": "https://www.trendyol.com/en/sr?wc=101426&wb=33%2C44%2C128%2C658%2C636%2C768&wg=2&vr=size%7C41_41-5_42_42-5_43_43-5_44_44-5&prc=110-*&sst=PRICE_BY_ASC",
+        "listing": "https://www.trendyol.com/ro/sr?wc=101426&wb=33%2C44%2C128%2C658%2C636%2C768&wg=2&vr=size%7C41_41-5_42_42-5_43_43-5_44_44-5&prc=110-*&sst=PRICE_BY_ASC",
     },
     "sneakers_standard": {
         "file": "products_ro_sneakers_standard_merged.json",
@@ -721,6 +724,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
