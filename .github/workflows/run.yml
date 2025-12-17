@@ -54,7 +54,16 @@ jobs:
             trendyol-state-${{ github.ref_name }}-${{ env.CACHE_DATE }}-
             trendyol-state-${{ github.ref_name }}-
 
-
+      - name: Debug state files
+        run: |
+          echo "---- state dir ----"
+          ls -la state || true
+          echo "---- show first lines ----"
+          for f in state/*.json; do
+            echo "### $f"
+            head -n 50 "$f" || true
+          done
+          
       - name: Run compare_trendyol_api.py
         env:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
