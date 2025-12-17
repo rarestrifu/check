@@ -27,7 +27,7 @@ MIN_DROP_PERCENT = 25.0
 WELCOME_DISCOUNT_PERCENT = 30.0  # 0.0 dacă vrei fără cod
 MIN_PRICE_LINK = 130
 
-COOLDOWN_HOURS = 2
+COOLDOWN_HOURS = 1
 COOLDOWN_SECONDS = int(COOLDOWN_HOURS * 3600)
 
 STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
