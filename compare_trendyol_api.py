@@ -21,7 +21,11 @@ from rich.console import Console
 
 # ========== CONFIG ==========
 
-PRICE_THRESHOLD = 100
+PRICE_THRESHOLD_BOOTS = 140
+PRICE_THRESHOLD_RUNNING_WALKING = 100
+PRICE_THRESHOLD_SNEAKERS_PREMIUM = 100
+PRICE_THRESHOLD_SNEAKERS_STANDARD = 100
+
 MIN_DROP_PERCENT = 25.0
 
 WELCOME_DISCOUNT_PERCENT = 30.0  # 0.0 dacă vrei fără cod
@@ -303,14 +307,14 @@ def clean_product_url(url: str):
 #  EMAIL (HTML + CID images)
 # ============================================================
 
-def send_email(hits, label):
+def send_email(hits, label, price_threshold):
     if not EMAIL_ENABLED or not hits:
         return
     if not EMAIL_PASSWORD:
         print("⚠ EMAIL password missing (set GMAIL_APP_PASSWORD env var)")
         return
 
-    subject = f"🟢 Trendyol drops under {PRICE_THRESHOLD} Lei [{label}]"
+    subject = f"🟢 Trendyol drops under {price_threshold} Lei [{label}]"
 
     # -------- plain text fallback --------
     hits_by_brand = defaultdict(list)
@@ -531,7 +535,7 @@ def fetch_new_products_via_page_fetch(page, listing_url: str):
 #  SINGLE CATEGORY
 # ============================================================
 
-def main_single(products_file, listing_url, label, progress=None, page=None):
+def main_single(products_file, listing_url, label, price_threshold, progress=None, page=None):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(script_dir, products_file)
 
@@ -611,7 +615,7 @@ def main_single(products_file, listing_url, label, progress=None, page=None):
         drop_percent = (drop / old_price) * 100 if drop > 0 else 0.0
 
         if new_price < old_price:
-            status = "hit" if (drop_percent >= MIN_DROP_PERCENT and new_price <= PRICE_THRESHOLD) else "drop"
+            status = "hit" if (drop_percent >= MIN_DROP_PERCENT and new_price <= price_threshold) else "drop"
         elif new_price > old_price:
             status = "increase"
         else:
@@ -670,7 +674,7 @@ def main_single(products_file, listing_url, label, progress=None, page=None):
         json.dump(missing_products, f, indent=2, ensure_ascii=False)
 
     hits = apply_cooldown_filter(hits, label)
-    send_email(hits, label)
+    send_email(hits, label, price_threshold)
 
     return {
         "label": label,
@@ -691,24 +695,29 @@ CATEGORIES = {
         "file": "products_ro_walking.json",
         "listing": "https://www.trendyol.com/ro/sr?wc=101429&wb=658%2C33%2C44%2C128%2C300%2C156%2C636%2C768%2C369&wg=2&vr=size%7C41_41-5_42_42-5_43_43-5_44_44-5_41-1-3_42-2-3_43-1-3_44-2-3_45-1-3&prc="
                    + str(MIN_PRICE_LINK) + "-*&sst=PRICE_BY_ASC",
+        "price_threshold": PRICE_THRESHOLD_RUNNING_WALKING,
     },
     "running": {
         "file": "products_ro_running.json",
         "listing": "https://www.trendyol.com/ro/sr?wc=101426&wb=33%2C44%2C128%2C658%2C636%2C768&wg=2&vr=size%7C41_41-5_42_42-5_43_43-5_44_44-5&prc=110-*&sst=PRICE_BY_ASC",
+        "price_threshold": PRICE_THRESHOLD_RUNNING_WALKING,
     },
     "sneakers_standard": {
         "file": "products_ro_sneakers_standard_merged.json",
         "listing": "https://www.trendyol.com/ro/sr?wc=1172&wb=33%2C128%2C333%2C104189&wg=2&vr=size%7C40-5_41_41-5_42_42-5_43_43-5_44_44-5_45_40-2-3_41-1-3_42-2-3_43-1-3_44-2-3&prc="
                    + str(MIN_PRICE_LINK) + "-*&sst=PRICE_BY_ASC&pi=2",
+        "price_threshold": PRICE_THRESHOLD_SNEAKERS_STANDARD,
     },
     "sneakers_premium": {
         "file": "products_ro_sneakers_premium_merged.json",
         "listing": "https://www.trendyol.com/ro/sr?wc=1172&wb=44%2C54%2C658%2C172588&wg=2&vr=size%7C40-5_41_41-5_42_42-5_43_43-5_44_44-5_45&prc="
                    + str(MIN_PRICE_LINK) + "-*&sst=PRICE_BY_ASC",
+        "price_threshold": PRICE_THRESHOLD_SNEAKERS_PREMIUM,
     },
     "boots": {
         "file": "products_ro_boots.json",
         "listing": "https://www.trendyol.com/ro/sr?wc=1025&wb=369%2C300%2C156%2C33%2C160%2C54%2C658%2C768&wg=2&vr=size%7C41_41-5_42_42-5_43_43-5_44_44-5_45_40-2-3_41-1-3_42-2-3_43-1-3_44-2-3&sst=PRICE_BY_ASC",
+        "price_threshold": PRICE_THRESHOLD_BOOTS,
     },
 }
 
@@ -753,6 +762,7 @@ def main():
                         cfg["file"],
                         cfg["listing"],
                         label,
+                        cfg.get("price_threshold", PRICE_THRESHOLD),
                         progress=progress,
                         page=page,
                     )
@@ -801,6 +811,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
