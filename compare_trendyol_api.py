@@ -21,6 +21,7 @@ from rich.console import Console
 
 # ========== CONFIG ==========
 
+PRICE_THRESHOLD_DEFAULT = 100
 PRICE_THRESHOLD_BOOTS = 140
 PRICE_THRESHOLD_RUNNING_WALKING = 100
 PRICE_THRESHOLD_SNEAKERS_PREMIUM = 100
@@ -762,7 +763,7 @@ def main():
                         cfg["file"],
                         cfg["listing"],
                         label,
-                        cfg.get("price_threshold", PRICE_THRESHOLD),
+                        cfg.get("price_threshold", PRICE_THRESHOLD_DEFAULT),
                         progress=progress,
                         page=page,
                     )
@@ -811,6 +812,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
