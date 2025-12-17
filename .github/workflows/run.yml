@@ -5,6 +5,10 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: trendyol-checker
+  cancel-in-progress: true
+
 jobs:
   run:
     runs-on: ubuntu-latest
