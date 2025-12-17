@@ -21,7 +21,7 @@ from rich.console import Console
 
 # ========== CONFIG ==========
 
-PRICE_THRESHOLD = 90
+PRICE_THRESHOLD = 100
 MIN_DROP_PERCENT = 25.0
 
 WELCOME_DISCOUNT_PERCENT = 30.0  # 0.0 dacă vrei fără cod
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
