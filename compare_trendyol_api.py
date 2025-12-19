@@ -21,15 +21,15 @@ from rich.console import Console
 
 # ========== CONFIG ==========
 
-PRICE_THRESHOLD_DEFAULT = 100
+PRICE_THRESHOLD_DEFAULT = 110
 PRICE_THRESHOLD_BOOTS = 140
-PRICE_THRESHOLD_RUNNING_WALKING = 100
-PRICE_THRESHOLD_SNEAKERS_PREMIUM = 100
+PRICE_THRESHOLD_RUNNING_WALKING = 90
+PRICE_THRESHOLD_SNEAKERS_PREMIUM = 130
 PRICE_THRESHOLD_SNEAKERS_STANDARD = 100
 
 MIN_DROP_PERCENT = 25.0
 
-WELCOME_DISCOUNT_PERCENT = 30.0  # 0.0 dacă vrei fără cod
+WELCOME_DISCOUNT_PERCENT = 30.0  
 MIN_PRICE_LINK = 130
 
 COOLDOWN_HOURS = 1
@@ -720,6 +720,11 @@ CATEGORIES = {
         "listing": "https://www.trendyol.com/ro/sr?wc=1025&wb=369%2C300%2C156%2C33%2C160%2C54%2C658%2C768&wg=2&vr=size%7C41_41-5_42_42-5_43_43-5_44_44-5_45_40-2-3_41-1-3_42-2-3_43-1-3_44-2-3&sst=PRICE_BY_ASC",
         "price_threshold": PRICE_THRESHOLD_BOOTS,
     },
+    "campus": {
+        "file": "products_ro_campus.json",
+        "listing": "https://www.trendyol.com/ro/sr?wb=33&vr=size%7C36_38_39-5_40_40-5_41-5_42_42-5_43-5_44_46_36-2-3_37-1-3_38-2-3_40-2-3_41-1-3_42-2-3_43-1-3_44-2-3&qt=adidas+campus+00s&st=adidas+campus+00s&os=1&q=campus+00s&sst=PRICE_BY_ASC",
+        "price_threshold": PRICE_THRESHOLD_BOOTS,
+    }
 }
 
 
@@ -812,6 +817,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
