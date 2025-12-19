@@ -101,7 +101,16 @@ def send_email(percents, above_threshold):
         print("⚠ Missing GMAIL_APP_PASSWORD env var")
         return
 
-    subject = "eVoucher Trendyol – procente găsite"
+    # ICON logic
+    if above_threshold:
+        icon = "🟢✅"
+        status_line = f"FOUND {max(above_threshold)}%"
+    else:
+        icon = "🔴❌"
+        status_line = "NO >40%"
+
+    subject = f"{icon} eVoucher Trendyol – {status_line}"
+
     found_line = ", ".join(map(str, percents)) if percents else "(nimic)"
     above_line = ", ".join(map(str, above_threshold)) if above_threshold else "(nimic)"
 
@@ -123,7 +132,8 @@ def send_email(percents, above_threshold):
         server.login(EMAIL_USER, EMAIL_PASSWORD)
         server.send_message(msg)
 
-    print("📧 Email sent.")
+    print("📧 Email sent:", subject)
+
 
 def main():
     with sync_playwright() as p:
@@ -156,4 +166,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
