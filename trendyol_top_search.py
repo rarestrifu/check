@@ -13,7 +13,8 @@ WELCOME_CODE_PERCENT = 30
 MAX_PI = 80
 STATE_DIR = "state"
 
-API_SUBSTR = "discovery-sfint-search-service/api/search/products"
+# Endpoint stabil (ca în workflow-ul tău care merge)
+API_BASE = "https://apigw.trendyol.com/discovery-sfint-search-service/api/search/products"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -71,30 +72,6 @@ def extract_products(payload):
     return payload.get("products", []) if isinstance(payload, dict) else []
 
 
-def set_query_param(url, key, value):
-    p = urlparse(url)
-    qs = parse_qs(p.query)
-    qs[key] = [str(value)]
-    return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(qs, doseq=True), p.fragment))
-
-
-def fetch_json(page, url):
-    # in-page fetch with credentials => avoids direct 403 in many cases
-    return page.evaluate(
-        """async (u) => {
-            const r = await fetch(u, { credentials: 'include' });
-            let data = null;
-            try { data = await r.json(); } catch(e) {}
-            return { ok: r.ok, status: r.status, data };
-        }""",
-        url
-    )
-
-
-def get_model_id(p):
-    return p.get("contentId") or p.get("id") or p.get("groupId")
-
-
 def parse_price(v):
     if isinstance(v, (int, float)):
         return float(v)
@@ -106,9 +83,9 @@ def parse_price(v):
 
 def get_price(p):
     for v in (
-        p.get("recommendedRetailPrice", {}).get("discountedPromotionPriceNumerized"),
-        p.get("price", {}).get("discountedPrice"),
-        p.get("price", {}).get("current"),
+        (p.get("recommendedRetailPrice") or {}).get("discountedPromotionPriceNumerized"),
+        (p.get("price") or {}).get("discountedPrice"),
+        (p.get("price") or {}).get("current"),
     ):
         val = parse_price(v)
         if val is not None:
@@ -128,84 +105,142 @@ def normalize_url(u):
     return "https://www.trendyol.com" + u
 
 
+def get_model_id(p):
+    return p.get("contentId") or p.get("id") or p.get("groupId")
+
+
+def extract_query_params(url: str):
+    p = urlparse(url)
+    return dict(parse_qsl(p.query))
+
+
+def accept_cookies(page):
+    # best-effort: nu crăpa dacă nu există banner
+    for sel in [
+        "//button[contains(., 'Accept')]",
+        "//button[contains(., 'Acceptați')]",
+        "//button[contains(., 'Accept toate')]",
+        "//button[contains(., 'Accept all')]",
+    ]:
+        try:
+            page.locator(sel).click(timeout=2000)
+            page.wait_for_timeout(200)
+            return
+        except Exception:
+            pass
+
+
 # ================= CORE =================
 
 def collect_current(page, cfg):
     """
     Return: (results, status)
-      status: "ok" | "no_template" | "http_error"
+      status: "ok" | "http_error"
     """
-    state = {"template": None}
     seen, results = set(), []
 
-    def on_response(resp):
-        if API_SUBSTR in resp.url and state["template"] is None:
-            try:
-                if extract_products(resp.json()):
-                    state["template"] = resp.url
-            except Exception:
-                pass
+    # 1) Open listing to establish cookies/session
+    page.goto(cfg["listing"], timeout=120000, wait_until="domcontentloaded")
+    page.wait_for_timeout(1500)
+    accept_cookies(page)
+    page.wait_for_timeout(800)
 
-    page.on("response", on_response)
-    try:
-        page.goto(cfg["listing"], timeout=60000, wait_until="networkidle")
-        page.wait_for_timeout(1500)
+    base_params = extract_query_params(cfg["listing"])
 
-        # light scroll to trigger initial API response
-        for _ in range(20):
-            if state["template"]:
-                break
-            try:
-                page.mouse.wheel(0, 800)
-            except Exception:
-                pass
-            page.wait_for_timeout(600)
+    # 2) Fetch products via in-page fetch (credentials included), like your working workflow
+    js = r"""
+    async ({ apiBase, baseParams, maxPi }) => {
+      const paramsBase = new URLSearchParams();
+      Object.entries(baseParams).forEach(([k, v]) => {
+        if (v != null) paramsBase.append(k, v);
+      });
 
-        if not state["template"]:
-            page.screenshot(path=f"debug_{int(time.time())}.png", full_page=True)
-            return [], "no_template"
+      async function fetchPage(pi) {
+        const params = new URLSearchParams(paramsBase);
+        params.set("pi", String(pi));
 
-        for pi in range(1, MAX_PI + 1):
-            res = fetch_json(page, set_query_param(state["template"], "pi", pi))
-            if not res["ok"]:
-                return results, "http_error"
+        // "magic" params that help avoid blocks / missing data
+        params.set("culture", "ro-RO");
+        params.set("storefrontId", "29");
+        params.set("channelId", "1");
+        params.set("pathModel", "sr");
+        params.set("countryCode", "RO");
+        params.set("language", "ro");
 
-            batch = extract_products(res["data"])
-            if not batch:
-                break
+        const url = apiBase + "?" + params.toString();
 
-            for pr in batch:
-                if len(results) >= cfg["target"]:
-                    return results, "ok"
+        let resp;
+        try {
+          resp = await fetch(url, {
+            credentials: "include",
+            headers: {
+              "accept": "application/json, text/plain, */*",
+              "accept-language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
+              "x-country-code": "RO"
+            }
+          });
+        } catch (e) {
+          return { ok: false, status: -1, error: String(e), products: [], hasNext: false };
+        }
 
-                pid = get_model_id(pr)
-                if not pid or pid in seen:
-                    continue
+        if (!resp.ok) {
+          let txt = "";
+          try { txt = await resp.text(); } catch (e) {}
+          return { ok: false, status: resp.status, error: (txt || "").slice(0, 300), products: [], hasNext: false };
+        }
 
-                price = get_price(pr)
-                if price is None:
-                    continue
+        const data = await resp.json();
+        const products = data.products || [];
+        const hasNext = !!(data._links && data._links.next);
+        return { ok: true, status: 200, error: "", products, hasNext };
+      }
 
-                if apply_code(price) > cfg["price_max"]:
-                    return results, "ok"
+      let all = [];
+      for (let pi = 1; pi <= maxPi; pi++) {
+        const r = await fetchPage(pi);
+        if (!r.ok) return { ok: false, status: r.status, error: r.error, products: all };
+        all = all.concat(r.products);
+        if (!r.hasNext) break;
+        await new Promise(res => setTimeout(res, 200));
+      }
 
-                seen.add(pid)
-                u = normalize_url(pr.get("url", ""))
-                results.append({
-                    "key": clean_url(u),
-                    "name": pr.get("name") or "",
-                    "url": u,
-                })
+      return { ok: true, status: 200, error: "", products: all };
+    }
+    """
 
-            time.sleep(0.15)
+    api_result = page.evaluate(js, {"apiBase": API_BASE, "baseParams": base_params, "maxPi": MAX_PI})
+    if not api_result.get("ok", False):
+        # debug screenshot ca să vezi ce primește runner-ul
+        page.screenshot(path=f"debug_api_{int(time.time())}.png", full_page=True)
+        return [], "http_error"
 
-        return results, "ok"
-    finally:
-        # IMPORTANT: avoid accumulating handlers for each category
-        try:
-            page.remove_listener("response", on_response)
-        except Exception:
-            pass
+    products = api_result.get("products", []) or []
+
+    # 3) Apply your filtering logic (target + price ceiling)
+    for pr in products:
+        if len(results) >= cfg["target"]:
+            return results, "ok"
+
+        pid = get_model_id(pr)
+        if not pid or pid in seen:
+            continue
+
+        price = get_price(pr)
+        if price is None:
+            continue
+
+        if apply_code(price) > cfg["price_max"]:
+            return results, "ok"
+
+        seen.add(pid)
+        u = normalize_url(pr.get("url", ""))
+        results.append({
+            "key": clean_url(u),
+            "name": pr.get("name") or "",
+            "url": u,
+        })
+
+    return results, "ok"
 
 
 def load_base(filename):
@@ -259,10 +294,10 @@ def main():
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-                "--disable-dev-shm-usage"
-            ]
+                "--disable-dev-shm-usage",
+            ],
         )
-        
+
         context = browser.new_context(
             user_agent=UA,
             locale="ro-RO",
@@ -270,10 +305,15 @@ def main():
             viewport={"width": 1366, "height": 768},
             device_scale_factor=1,
         )
-        
+
+        # extra headers (aproape ca workflow-ul tău bun)
+        context.set_extra_http_headers({
+            "Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
+        })
+
         page = context.new_page()
 
-        # Warm-up: set cookies & session like a real user
+        # Warm-up
         page.goto("https://www.trendyol.com/ro", wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
 
@@ -297,14 +337,15 @@ def main():
                 )
                 continue
 
-            # --- collect current with one small retry (helps in GitHub Actions) ---
             current, status = collect_current(page, cfg)
-            if status == "no_template":
+
+            # One retry if API blocked transiently
+            if status != "ok":
+                time.sleep(2)
                 page.context.clear_cookies()
                 page.goto("https://www.trendyol.com/ro", wait_until="domcontentloaded")
                 page.wait_for_timeout(2000)
                 current, status = collect_current(page, cfg)
-
 
             if status != "ok":
                 send_email(
@@ -348,4 +389,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
