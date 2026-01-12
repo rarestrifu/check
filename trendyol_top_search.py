@@ -148,7 +148,7 @@ def collect_current(page, cfg):
 
     page.on("response", on_response)
     try:
-        page.goto(cfg["listing"], timeout=60000, wait_until="domcontentloaded")
+        page.goto(cfg["listing"], timeout=60000, wait_until="networkidle")
         page.wait_for_timeout(1500)
 
         # light scroll to trigger initial API response
@@ -156,12 +156,13 @@ def collect_current(page, cfg):
             if state["template"]:
                 break
             try:
-                page.mouse.wheel(0, 1400)
+                page.mouse.wheel(0, 800)
             except Exception:
                 pass
-            page.wait_for_timeout(450)
+            page.wait_for_timeout(600)
 
         if not state["template"]:
+            page.screenshot(path=f"debug_{int(time.time())}.png", full_page=True)
             return [], "no_template"
 
         for pi in range(1, MAX_PI + 1):
@@ -253,9 +254,28 @@ def main():
     os.makedirs(STATE_DIR, exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=UA)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage"
+            ]
+        )
+        
+        context = browser.new_context(
+            user_agent=UA,
+            locale="ro-RO",
+            timezone_id="Europe/Bucharest",
+            viewport={"width": 1366, "height": 768},
+            device_scale_factor=1,
+        )
+        
         page = context.new_page()
+
+        # Warm-up: set cookies & session like a real user
+        page.goto("https://www.trendyol.com/ro", wait_until="domcontentloaded")
+        page.wait_for_timeout(2000)
 
         for label, cfg in CATEGORIES.items():
             base_path = os.path.join(STATE_DIR, cfg["base_file"])
@@ -279,9 +299,12 @@ def main():
 
             # --- collect current with one small retry (helps in GitHub Actions) ---
             current, status = collect_current(page, cfg)
-            if status != "ok":
-                time.sleep(2)
+            if status == "no_template":
+                page.context.clear_cookies()
+                page.goto("https://www.trendyol.com/ro", wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)
                 current, status = collect_current(page, cfg)
+
 
             if status != "ok":
                 send_email(
@@ -325,3 +348,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
