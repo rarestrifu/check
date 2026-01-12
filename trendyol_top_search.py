@@ -4,17 +4,17 @@ import time
 import ssl
 import smtplib
 from email.message import EmailMessage
-from urllib.parse import urlparse, parse_qs, parse_qsl, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from playwright.sync_api import sync_playwright
 
 # ================= CONFIG =================
 
-WELCOME_CODE_PERCENT = 30
 STATE_DIR = "state"
+WELCOME_CODE_PERCENT = 30
 
-# IMPORTANT: nu ai nevoie de 80 pagini ca să găsești 25 produse sub prag
-# în CI, multe request-uri => soft-block (200 + products: [])
-MAX_PI = 12
+MAX_PI = 6
+MIN_ITEMS_OK = 2
+RETRY_DELAYS = [0, 8, 20, 45]
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -22,10 +22,7 @@ UA = (
     "Chrome/121.0.0.0 Safari/537.36"
 )
 
-# Endpoint stabil (ca în workflow-ul tău bun)
 API_BASE = "https://apigw.trendyol.com/discovery-sfint-search-service/api/search/products"
-
-# Parametri “magici” care fac diferența (exact ca în workflow-ul tău bun)
 API_EXTRA_PARAMS = {
     "culture": "ro-RO",
     "storefrontId": "29",
@@ -70,23 +67,25 @@ CATEGORIES = {
 # ================= HELPERS =================
 
 def clean_url(u: str) -> str:
-    """Remove boutiqueId/merchantId so the same product compares equal."""
     if not u:
         return ""
     p = urlparse(u)
     qs = dict(parse_qsl(p.query))
     qs.pop("boutiqueId", None)
     qs.pop("merchantId", None)
-    query = urlencode(qs, doseq=True)
-    return urlunparse((p.scheme, p.netloc, p.path, p.params, query, p.fragment))
+    return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(qs, doseq=True), p.fragment))
 
 
-def extract_products(payload):
-    return payload.get("products", []) if isinstance(payload, dict) else []
+def normalize_url(u: str) -> str:
+    if not u:
+        return ""
+    if u.startswith("http"):
+        return u
+    return "https://www.trendyol.com" + u
 
 
-def get_model_id(p):
-    return p.get("contentId") or p.get("id") or p.get("groupId")
+def apply_code(price: float) -> float:
+    return round(price * (1 - WELCOME_CODE_PERCENT / 100), 2)
 
 
 def parse_price(v):
@@ -98,7 +97,7 @@ def parse_price(v):
         return None
 
 
-def get_price(p):
+def get_price(p: dict):
     for v in (
         (p.get("recommendedRetailPrice") or {}).get("discountedPromotionPriceNumerized"),
         (p.get("price") or {}).get("discountedPrice"),
@@ -110,20 +109,11 @@ def get_price(p):
     return None
 
 
-def apply_code(price):
-    return round(price * (1 - WELCOME_CODE_PERCENT / 100), 2)
-
-
-def normalize_url(u):
-    if not u:
-        return ""
-    if u.startswith("http"):
-        return u
-    return "https://www.trendyol.com" + u
+def get_model_id(p: dict):
+    return p.get("contentId") or p.get("id") or p.get("groupId")
 
 
 def accept_cookies(page):
-    # best-effort (nu crăpăm dacă nu există)
     for sel in [
         "//button[contains(., 'Accept')]",
         "//button[contains(., 'Acceptați')]",
@@ -139,126 +129,45 @@ def accept_cookies(page):
 
 
 def build_api_url(listing_url: str, pi: int) -> str:
-    parsed = urlparse(listing_url)
-    qs = dict(parse_qsl(parsed.query))
-
+    qs = dict(parse_qsl(urlparse(listing_url).query))
     qs.update(API_EXTRA_PARAMS)
     qs["pi"] = str(pi)
-
     return API_BASE + "?" + urlencode(qs, doseq=True)
 
 
-def fetch_json(page, url):
-    # in-page fetch cu headers + credentials, ca în workflow-ul bun
-    return page.evaluate(
-        """async (u) => {
-            let r;
-            try {
-              r = await fetch(u, {
-                credentials: 'include',
-                headers: {
-                  'accept': 'application/json, text/plain, */*',
-                  'accept-language': 'ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7',
-                  'x-country-code': 'RO'
-                }
-              });
-            } catch (e) {
-              return { ok: false, status: -1, data: null, error: String(e) };
-            }
+def fetch_products_page(page, listing_url: str, pi: int):
+    api_url = build_api_url(listing_url, pi)
+    js = r"""
+    async (u) => {
+      let resp;
+      try {
+        resp = await fetch(u, {
+          credentials: "include",
+          headers: {
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
+            "x-country-code": "RO"
+          }
+        });
+      } catch (e) {
+        return { ok:false, status:-1, data:null, error:String(e) };
+      }
 
-            let data = null;
-            try { data = await r.json(); } catch(e) {}
+      if (!resp.ok) {
+        let txt = "";
+        try { txt = await resp.text(); } catch(e) {}
+        return { ok:false, status:resp.status, data:null, error:(txt||"").slice(0,300) };
+      }
 
-            return { ok: r.ok, status: r.status, data, error: '' };
-        }""",
-        url
-    )
-
-# ================= CORE =================
-
-def collect_current(page, cfg):
+      let data = null;
+      try { data = await resp.json(); } catch(e) {}
+      return { ok:true, status:200, data, error:"" };
+    }
     """
-    Return: (results, status)
-      status: "ok" | "http_error" | "empty"
-    """
-    seen, results = set(), []
-
-    # Hard warm-up per category (stabil în CI)
-    page.goto("https://www.trendyol.com/ro", timeout=120000, wait_until="domcontentloaded")
-    page.wait_for_timeout(1200)
-    accept_cookies(page)
-    page.wait_for_timeout(400)
-
-    # Open listing + accept + reload (consent chiar intră în vigoare)
-    page.goto(cfg["listing"], timeout=120000, wait_until="domcontentloaded")
-    page.wait_for_timeout(1200)
-    accept_cookies(page)
-    page.wait_for_timeout(400)
-    try:
-        page.reload(timeout=120000, wait_until="networkidle")
-    except Exception:
-        # uneori networkidle poate fi instabil; nu forțăm
-        pass
-    page.wait_for_timeout(800)
-
-    any_products_seen = False
-    over_max_streak = 0
-
-    # Fetch incremental: luăm pagini până strângem target
-    for pi in range(1, MAX_PI + 1):
-        api_url = build_api_url(cfg["listing"], pi)
-        res = fetch_json(page, api_url)
-
-        if not res.get("ok"):
-            page.screenshot(path=f"debug_http_{int(time.time())}.png", full_page=True)
-            return results, "http_error"
-
-        batch = extract_products(res.get("data"))
-        if batch:
-            any_products_seen = True
-        else:
-            break
-
-        for pr in batch:
-            if len(results) >= cfg["target"]:
-                return results, "ok"
-
-            pid = get_model_id(pr)
-            if not pid or pid in seen:
-                continue
-
-            price = get_price(pr)
-            if price is None:
-                continue
-
-            # IMPORTANT: nu ieșim la primul produs peste prag (poate fi random/promoted)
-            if apply_code(price) > cfg["price_max"]:
-                over_max_streak += 1
-                # dacă am văzut multe peste prag și deja avem ceva, ne oprim
-                if over_max_streak >= 35 and len(results) > 0:
-                    return results, "ok"
-                continue
-            else:
-                over_max_streak = 0
-
-            seen.add(pid)
-            u = normalize_url(pr.get("url", ""))
-            results.append({
-                "key": clean_url(u),
-                "name": pr.get("name") or "",
-                "url": u,
-            })
-
-        time.sleep(0.25)  # mic delay anti-rate-limit
-
-    if not any_products_seen:
-        page.screenshot(path=f"debug_empty_{int(time.time())}.png", full_page=True)
-        return [], "empty"
-
-    return results, "ok"
+    return page.evaluate(js, api_url)
 
 
-def load_base(filename):
+def load_base(filename: str) -> set:
     path = os.path.join(STATE_DIR, filename)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -273,7 +182,7 @@ def load_base(filename):
     return keys
 
 
-def send_email(subject, body):
+def send_email(subject: str, body: str):
     msg = EmailMessage()
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
@@ -292,116 +201,187 @@ def send_email(subject, body):
         s.login(EMAIL_USER, EMAIL_PASSWORD)
         s.send_message(msg)
 
+# ================= CORE =================
+
+def collect_current(page, cfg):
+    """
+    Returns (items, status)
+    status: ok | empty | http_error
+    """
+    page.goto("https://www.trendyol.com/ro", timeout=120000, wait_until="domcontentloaded")
+    page.wait_for_timeout(1200)
+    accept_cookies(page)
+    page.wait_for_timeout(400)
+
+    page.goto(cfg["listing"], timeout=120000, wait_until="domcontentloaded")
+    page.wait_for_timeout(1200)
+    accept_cookies(page)
+    page.wait_for_timeout(400)
+    try:
+        page.reload(timeout=120000, wait_until="networkidle")
+    except Exception:
+        pass
+    page.wait_for_timeout(700)
+
+    seen = set()
+    results = []
+    any_products_seen = False
+    over_max_streak = 0
+
+    for pi in range(1, MAX_PI + 1):
+        res = fetch_products_page(page, cfg["listing"], pi)
+        if not res.get("ok"):
+            page.screenshot(path=f"debug_http_{int(time.time())}.png", full_page=True)
+            return [], "http_error"
+
+        data = res.get("data") or {}
+        batch = data.get("products", []) or []
+        if batch:
+            any_products_seen = True
+        else:
+            break
+
+        for pr in batch:
+            if len(results) >= cfg["target"]:
+                return results, "ok"
+
+            pid = get_model_id(pr)
+            if not pid or pid in seen:
+                continue
+
+            price = get_price(pr)
+            if price is None:
+                continue
+
+            if apply_code(price) > cfg["price_max"]:
+                over_max_streak += 1
+                if over_max_streak >= 40 and len(results) > 0:
+                    return results, "ok"
+                continue
+            else:
+                over_max_streak = 0
+
+            seen.add(pid)
+            u = normalize_url(pr.get("url", ""))
+            results.append({
+                "key": clean_url(u),
+                "name": pr.get("name") or "",
+                "url": u,
+            })
+
+        time.sleep(0.5)
+
+    if not any_products_seen:
+        page.screenshot(path=f"debug_empty_{int(time.time())}.png", full_page=True)
+        return [], "empty"
+
+    return results, "ok"
+
 # ================= MAIN =================
 
 def main():
     os.makedirs(STATE_DIR, exist_ok=True)
 
+    run_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    summary_lines = []
+    all_new_items = []  # (label, item)
+    blocked_labels = []
+    ok_labels = []
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ]
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
 
         for label, cfg in CATEGORIES.items():
             base_path = os.path.join(STATE_DIR, cfg["base_file"])
-
             if not os.path.exists(base_path):
-                send_email(
-                    f"🟠 Trendyol {label}: BASE MISSING",
-                    f"Base file is missing:\n{base_path}\n\n"
-                    f"Put {cfg['base_file']} inside the repo under /state and commit it."
-                )
+                summary_lines.append(f"[{label}] BASE MISSING: {base_path}")
+                blocked_labels.append(label)
                 continue
 
             try:
                 base_set = load_base(cfg["base_file"])
             except Exception as e:
-                send_email(
-                    f"🟠 Trendyol {label}: BASE READ ERROR",
-                    f"Could not read base file:\n{base_path}\n\nError:\n{e}"
-                )
+                summary_lines.append(f"[{label}] BASE READ ERROR: {e}")
+                blocked_labels.append(label)
                 continue
 
-            # Context NOU per categorie (elimină problema cu ordinea / sesiunea “stricată”)
             context = browser.new_context(
                 user_agent=UA,
                 locale="ro-RO",
                 timezone_id="Europe/Bucharest",
                 viewport={"width": 1366, "height": 768},
-                device_scale_factor=1,
             )
             context.set_extra_http_headers({
                 "Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
             })
             page = context.new_page()
 
-            # colectare + retry (o singură dată)
-            current, status = collect_current(page, cfg)
-            if status != "ok" or len(current) == 0:
-                time.sleep(2)
+            current = []
+            status = "empty"
+
+            for delay in RETRY_DELAYS:
+                if delay:
+                    time.sleep(delay)
                 context.clear_cookies()
                 current, status = collect_current(page, cfg)
+                if status == "ok" and len(current) >= MIN_ITEMS_OK:
+                    break
 
-            # închidem contextul (reset total)
             context.close()
 
-            # safety: 0 produse NU e “changed”
-            if status != "ok" or len(current) == 0:
-                send_email(
-                    f"🟠 Trendyol {label}: ERROR ({status})",
-                    f"Could not collect a valid current list for {label}.\n"
-                    f"Status: {status}\n"
-                    f"Items: {len(current)}\n"
-                    f"Listing: {cfg['listing']}\n\n"
-                    f"NOTE: this is NOT treated as a list change."
-                )
+            if status != "ok" or len(current) < MIN_ITEMS_OK:
+                summary_lines.append(f"[{label}] BLOCKED/EMPTY (status={status}, items={len(current)})")
+                blocked_labels.append(label)
                 continue
 
+            ok_labels.append(label)
+
             current_set = {p["key"] for p in current}
+            new_items = [p for p in current if p["key"] not in base_set]
 
-            if current_set == base_set:
-                send_email(
-                    f"🔴 Trendyol {label}: UNCHANGED",
-                    f"The product list for {label} is identical to the base list.\n"
-                    f"Items checked: {len(current)}"
-                )
-            else:
-                new_items = [p for p in current if p["key"] not in base_set]
-                missing_count = len(base_set - current_set)
+            summary_lines.append(
+                f"[{label}] OK items={len(current)} new={len(new_items)} missing_vs_base={len(base_set - current_set)}"
+            )
 
-                # dacă NU există produse noi, dar lipsesc unele din base, poți trimite un mail separat
-                if not new_items:
-                    send_email(
-                        f"🟠 Trendyol {label}: CHANGED (no new items)",
-                        f"List differs from base, but there are NO new items.\n"
-                        f"Missing vs base: {missing_count}\n"
-                        f"Current items checked: {len(current)}\n"
-                        f"Listing: {cfg['listing']}"
-                    )
-                    continue
+            for it in new_items:
+                all_new_items.append((label, it))
 
-                lines = []
-                lines.append(f"New items found for {label} (only new vs base): {len(new_items)}")
-                lines.append(f"Missing vs base: {missing_count}")
-                lines.append("")
-                lines.append("NEW items:")
-                for it in new_items:
-                    lines.append(f"- {it['name']}\n  {it['url']}")
-
-                send_email(
-                    f"🟢 Trendyol {label}: NEW ({len(new_items)})",
-                    "\n".join(lines)
-                )
-
-
-            time.sleep(2)  # mic cooldown între categorii
+            time.sleep(2)
 
         browser.close()
+
+    # ====== EMAIL ALWAYS (even if none found) ======
+    lines = []
+    lines.append(f"Trendyol run report @ {run_ts}")
+    lines.append("")
+    if summary_lines:
+        lines.append("Summary:")
+        lines.extend(summary_lines)
+        lines.append("")
+
+    if all_new_items:
+        lines.append(f"NEW ITEMS TOTAL: {len(all_new_items)}")
+        lines.append("")
+        for label, it in all_new_items:
+            lines.append(f"[{label}] {it['name']}\n  {it['url']}")
+    else:
+        lines.append("NO NEW ITEMS found this run.")
+
+    subject_parts = []
+    if all_new_items:
+        subject_parts.append(f"NEW {len(all_new_items)}")
+    else:
+        subject_parts.append("NO NEW")
+
+    if blocked_labels:
+        subject_parts.append(f"BLOCKED {len(blocked_labels)}")
+
+    subject = "🟢 Trendyol: " + " | ".join(subject_parts)
+
+    send_email(subject, "\n".join(lines))
 
 
 if __name__ == "__main__":
