@@ -1,0 +1,38 @@
+name: Trendyol Compare to Base
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: trendyol-compare
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - run: |
+          pip install playwright
+          playwright install chromium
+
+      - run: mkdir -p state
+
+      - name: Run checker
+        env:
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          xvfb-run -a python trendyol_compare_to_base.py
