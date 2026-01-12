@@ -205,8 +205,8 @@ def send_email(subject: str, body: str):
 
 def collect_current(page, cfg):
     """
-    Returns (items, status)
-    status: ok | empty | http_error
+    Returns (items, status, stats)
+    status: ok | empty_api | filtered_empty | http_error
     """
     page.goto("https://www.trendyol.com/ro", timeout=120000, wait_until="domcontentloaded")
     page.wait_for_timeout(1200)
@@ -217,65 +217,95 @@ def collect_current(page, cfg):
     page.wait_for_timeout(1200)
     accept_cookies(page)
     page.wait_for_timeout(400)
-    try:
-        page.reload(timeout=120000, wait_until="networkidle")
-    except Exception:
-        pass
+
+    # IMPORTANT: în workflow-ul tău care merge NU făceai reload/networkidle.
+    # îl scoatem ca să semene mai mult.
     page.wait_for_timeout(700)
 
     seen = set()
     results = []
-    any_products_seen = False
+
+    stats = {
+        "api_pages": 0,
+        "batch_products": 0,     # cate produse au venit din API total
+        "added": 0,              # cate au intrat in results
+        "dup": 0,
+        "price_none": 0,
+        "over_max": 0,
+        "sample_price_fields": None,  # debug: ce campuri de pret are primul produs
+    }
+
+    any_batch = False
     over_max_streak = 0
 
     for pi in range(1, MAX_PI + 1):
         res = fetch_products_page(page, cfg["listing"], pi)
         if not res.get("ok"):
-            page.screenshot(path=f"debug_http_{int(time.time())}.png", full_page=True)
-            return [], "http_error"
+            return [], "http_error", {**stats, "http_status": res.get("status"), "error": res.get("error")}
 
         data = res.get("data") or {}
-        batch = data.get("products", []) or []
+        batch = data.get("products", []) if isinstance(data, dict) else []
+        stats["api_pages"] += 1
+
         if batch:
-            any_products_seen = True
+            any_batch = True
         else:
             break
 
+        stats["batch_products"] += len(batch)
+
+        # sample schema (doar o data)
+        if stats["sample_price_fields"] is None and len(batch) > 0:
+            p0 = batch[0]
+            stats["sample_price_fields"] = {
+                "has_rrp": bool(p0.get("recommendedRetailPrice")),
+                "rrp_keys": list((p0.get("recommendedRetailPrice") or {}).keys())[:8],
+                "has_price": bool(p0.get("price")),
+                "price_keys": list((p0.get("price") or {}).keys())[:8],
+            }
+
         for pr in batch:
             if len(results) >= cfg["target"]:
-                return results, "ok"
+                return results, "ok", stats
 
             pid = get_model_id(pr)
-            if not pid or pid in seen:
+            if not pid:
+                continue
+            if pid in seen:
+                stats["dup"] += 1
                 continue
 
             price = get_price(pr)
             if price is None:
+                stats["price_none"] += 1
                 continue
 
             if apply_code(price) > cfg["price_max"]:
+                stats["over_max"] += 1
                 over_max_streak += 1
                 if over_max_streak >= 40 and len(results) > 0:
-                    return results, "ok"
+                    return results, "ok", stats
                 continue
             else:
                 over_max_streak = 0
 
             seen.add(pid)
             u = normalize_url(pr.get("url", ""))
-            results.append({
-                "key": clean_url(u),
-                "name": pr.get("name") or "",
-                "url": u,
-            })
+            results.append({"key": clean_url(u), "name": pr.get("name") or "", "url": u})
+            stats["added"] += 1
 
         time.sleep(0.5)
 
-    if not any_products_seen:
-        page.screenshot(path=f"debug_empty_{int(time.time())}.png", full_page=True)
-        return [], "empty"
+    if not any_batch:
+        # asta e cazul real de soft-block: API nu da produse deloc
+        return [], "empty_api", stats
 
-    return results, "ok"
+    if len(results) == 0:
+        # API a avut produse, dar noi am filtrat/sarit tot
+        return [], "filtered_empty", stats
+
+    return results, "ok", stats
+
 
 # ================= MAIN =================
 
@@ -326,16 +356,23 @@ def main():
                 if delay:
                     time.sleep(delay)
                 context.clear_cookies()
-                current, status = collect_current(page, cfg)
+                current, status, stats = collect_current(page, cfg)
                 if status == "ok" and len(current) >= MIN_ITEMS_OK:
                     break
 
             context.close()
 
             if status != "ok" or len(current) < MIN_ITEMS_OK:
-                summary_lines.append(f"[{label}] BLOCKED/EMPTY (status={status}, items={len(current)})")
+                summary_lines.append(
+                    f"[{label}] {status} items={len(current)} | "
+                    f"api_pages={stats.get('api_pages')} batch={stats.get('batch_products')} "
+                    f"added={stats.get('added')} price_none={stats.get('price_none')} "
+                    f"over_max={stats.get('over_max')} dup={stats.get('dup')} "
+                    f"sample={stats.get('sample_price_fields')}"
+                )
                 blocked_labels.append(label)
                 continue
+
 
             ok_labels.append(label)
 
@@ -343,7 +380,9 @@ def main():
             new_items = [p for p in current if p["key"] not in base_set]
 
             summary_lines.append(
-                f"[{label}] OK items={len(current)} new={len(new_items)} missing_vs_base={len(base_set - current_set)}"
+                f"[{label}] OK items={len(current)} new={len(new_items)} missing_vs_base={len(base_set - current_set)} | "
+                f"api_pages={stats.get('api_pages')} batch={stats.get('batch_products')} "
+                f"added={stats.get('added')} price_none={stats.get('price_none')} over_max={stats.get('over_max')}"
             )
 
             for it in new_items:
