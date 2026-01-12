@@ -139,10 +139,19 @@ def collect_current(page, cfg):
     """
     seen, results = set(), []
 
-    # 1) Open listing to establish cookies/session
-    page.goto(cfg["listing"], timeout=120000, wait_until="domcontentloaded")
-    page.wait_for_timeout(1500)
+    # 0) hard warm-up per category (stabilizează session/consent)
+    page.goto("https://www.trendyol.com/ro", timeout=120000, wait_until="domcontentloaded")
+    page.wait_for_timeout(1200)
     accept_cookies(page)
+    page.wait_for_timeout(400)
+    page.wait_for_load_state("networkidle")
+    
+    # 1) open listing + accept again + reload (consent chiar intră în vigoare)
+    page.goto(cfg["listing"], timeout=120000, wait_until="domcontentloaded")
+    page.wait_for_timeout(1200)
+    accept_cookies(page)
+    page.wait_for_timeout(400)
+    page.reload(timeout=120000, wait_until="networkidle")
     page.wait_for_timeout(800)
 
     base_params = extract_query_params(cfg["listing"])
@@ -215,6 +224,18 @@ def collect_current(page, cfg):
         return [], "http_error"
 
     products = api_result.get("products", []) or []
+
+    if not products:
+        # retry after clearing cookies + warm-up
+        page.context.clear_cookies()
+        page.goto("https://www.trendyol.com/ro", timeout=120000, wait_until="domcontentloaded")
+        page.wait_for_timeout(1200)
+        accept_cookies(page)
+        page.wait_for_timeout(400)
+    
+        # re-run evaluate once
+        api_result = page.evaluate(js, {"apiBase": API_BASE, "baseParams": base_params, "maxPi": MAX_PI})
+        products = api_result.get("products", []) or []
 
     # 3) Apply your filtering logic (target + price ceiling)
     for pr in products:
@@ -389,3 +410,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
