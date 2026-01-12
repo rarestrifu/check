@@ -132,7 +132,8 @@ def normalize_url(u):
 
 def collect_current(page, cfg):
     """
-    Collect current list for one category (up to target, stops when price_after_code > price_max).
+    Return: (results, status)
+      status: "ok" | "no_template" | "http_error"
     """
     state = {"template": None}
     seen, results = set(), []
@@ -147,23 +148,26 @@ def collect_current(page, cfg):
 
     page.on("response", on_response)
     try:
-        page.goto(cfg["listing"], timeout=60000)
-        page.wait_for_timeout(1200)
+        page.goto(cfg["listing"], timeout=60000, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
 
         # light scroll to trigger initial API response
-        for _ in range(15):
+        for _ in range(20):
             if state["template"]:
                 break
-            page.mouse.wheel(0, 1200)
-            page.wait_for_timeout(400)
+            try:
+                page.mouse.wheel(0, 1400)
+            except Exception:
+                pass
+            page.wait_for_timeout(450)
 
         if not state["template"]:
-            return []
+            return [], "no_template"
 
         for pi in range(1, MAX_PI + 1):
             res = fetch_json(page, set_query_param(state["template"], "pi", pi))
             if not res["ok"]:
-                break
+                return results, "http_error"
 
             batch = extract_products(res["data"])
             if not batch:
@@ -171,7 +175,7 @@ def collect_current(page, cfg):
 
             for pr in batch:
                 if len(results) >= cfg["target"]:
-                    return results
+                    return results, "ok"
 
                 pid = get_model_id(pr)
                 if not pid or pid in seen:
@@ -182,7 +186,7 @@ def collect_current(page, cfg):
                     continue
 
                 if apply_code(price) > cfg["price_max"]:
-                    return results
+                    return results, "ok"
 
                 seen.add(pid)
                 u = normalize_url(pr.get("url", ""))
@@ -194,7 +198,7 @@ def collect_current(page, cfg):
 
             time.sleep(0.15)
 
-        return results
+        return results, "ok"
     finally:
         # IMPORTANT: avoid accumulating handlers for each category
         try:
@@ -205,7 +209,7 @@ def collect_current(page, cfg):
 
 def load_base(filename):
     """
-    Base file format: a list of dicts which must contain at least 'url'.
+    Base file format: list of dicts containing at least 'url'
     We compare using cleaned url.
     """
     path = os.path.join(STATE_DIR, filename)
@@ -224,16 +228,17 @@ def load_base(filename):
 
 
 def send_email(subject, body):
-    if not EMAIL_PASSWORD:
-        print("⚠ Missing GMAIL_APP_PASSWORD env var (email not sent).")
-        print("Subject would be:", subject)
-        return
-
     msg = EmailMessage()
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
     msg["Subject"] = subject
     msg.set_content(body)
+
+    if not EMAIL_PASSWORD:
+        print("⚠ Missing GMAIL_APP_PASSWORD env var (email not sent).")
+        print("Subject would be:", subject)
+        print(body)
+        return
 
     ctx = ssl.create_default_context()
     with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as s:
@@ -254,11 +259,12 @@ def main():
 
         for label, cfg in CATEGORIES.items():
             base_path = os.path.join(STATE_DIR, cfg["base_file"])
+
             if not os.path.exists(base_path):
                 send_email(
                     f"🟠 Trendyol {label}: BASE MISSING",
-                    f"Base file is missing: {base_path}\n"
-                    f"Create it and commit it to the repo."
+                    f"Base file is missing:\n{base_path}\n\n"
+                    f"Put {cfg['base_file']} inside the repo under /state and commit it."
                 )
                 continue
 
@@ -267,11 +273,26 @@ def main():
             except Exception as e:
                 send_email(
                     f"🟠 Trendyol {label}: BASE READ ERROR",
-                    f"Could not read base file: {base_path}\nError: {e}"
+                    f"Could not read base file:\n{base_path}\n\nError:\n{e}"
                 )
                 continue
 
-            current = collect_current(page, cfg)
+            # --- collect current with one small retry (helps in GitHub Actions) ---
+            current, status = collect_current(page, cfg)
+            if status != "ok":
+                time.sleep(2)
+                current, status = collect_current(page, cfg)
+
+            if status != "ok":
+                send_email(
+                    f"🟠 Trendyol {label}: ERROR ({status})",
+                    f"Could not collect current list for {label}.\n"
+                    f"Status: {status}\n"
+                    f"Listing: {cfg['listing']}\n\n"
+                    f"NOTE: this is NOT treated as a list change."
+                )
+                continue
+
             current_set = {p["key"] for p in current}
 
             if current_set == base_set:
@@ -281,7 +302,6 @@ def main():
                     f"Items checked: {len(current)}"
                 )
             else:
-                # optional: show which keys are new/missing
                 new_items = [p for p in current if p["key"] not in base_set]
                 missing_count = len(base_set - current_set)
 
