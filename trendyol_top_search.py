@@ -34,6 +34,12 @@ EMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
 # ================= CATEGORIES =================
 
 CATEGORIES = {
+    "jackets": {
+        "listing": "https://www.trendyol.com/ro/sr?wc=118&wb=300%2C768%2C54%2C156%2C44%2C333%2C146279%2C33&wg=2&sst=PRICE_BY_ASC",
+        "price_max": 140.0,
+        "target": 25,
+        "base_file": "jackets_base.json",
+    },
     "boots": {
         "listing": "https://www.trendyol.com/ro/sr?wc=1025&wb=369%2C300%2C156%2C44%2C33%2C101990%2C54%2C160%2C658%2C768&wg=2&sst=PRICE_BY_ASC",
         "price_max": 150.0,
@@ -45,13 +51,7 @@ CATEGORIES = {
         "price_max": 140.0,
         "target": 25,
         "base_file": "sneakers_base.json",
-    },
-    "jackets": {
-        "listing": "https://www.trendyol.com/ro/sr?wc=118&wb=300%2C768%2C54%2C156%2C44%2C333%2C146279%2C33&wg=2&sst=PRICE_BY_ASC",
-        "price_max": 140.0,
-        "target": 25,
-        "base_file": "jackets_base.json",
-    },
+    }
 }
 
 # ================= HELPERS =================
@@ -410,4 +410,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
