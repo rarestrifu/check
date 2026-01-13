@@ -418,22 +418,22 @@ def main():
     if blocked_labels:
         subject_parts.append(f"BLOCKED {len(blocked_labels)}")
 
-    # subject color:
-    # 🟢 = NEW items
-    # 🔴 = NO NEW
-    # 🟠 = BLOCKED/EMPTY present
     if all_new_items:
         dot = "🟢"
+        tag = "[NEW]"
     elif blocked_labels:
         dot = "🟠"
+        tag = "[BLOCKED]"
     else:
         dot = "🔴"
+        tag = "[NO-NEW]"
     
-    subject = f"{dot} Trendyol: " + " | ".join(subject_parts)
+    subject = f"{dot} {tag} Trendyol: " + " | ".join(subject_parts)
 
     send_email(subject, "\n".join(lines))
 
 
 if __name__ == "__main__":
     main()
+
 
