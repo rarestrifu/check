@@ -6,6 +6,7 @@ import smtplib
 from email.message import EmailMessage
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from playwright.sync_api import sync_playwright
+import hashlib
 
 # ================= CONFIG =================
 
@@ -74,6 +75,23 @@ def clean_url(u: str) -> str:
     qs.pop("boutiqueId", None)
     qs.pop("merchantId", None)
     return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(qs, doseq=True), p.fragment))
+
+def fingerprint_new_items(all_new_items, n=6):
+    """
+    all_new_items = list of (label, item_dict)
+    Returns short hash that changes when the NEW set changes.
+    """
+    if not all_new_items:
+        return "NONE"
+    keys = []
+    for label, it in all_new_items:
+        # use your stable key (already clean_url)
+        k = it.get("key") or clean_url(it.get("url", ""))
+        if k:
+            keys.append(f"{label}:{k}")
+    keys.sort()
+    blob = "\n".join(keys).encode("utf-8", errors="ignore")
+    return hashlib.sha1(blob).hexdigest().upper()[:n]
 
 
 def normalize_url(u: str) -> str:
@@ -428,12 +446,25 @@ def main():
         dot = "🔴"
         tag = "[NO-NEW]"
     
-    subject = f"{dot} {tag} Trendyol: " + " | ".join(subject_parts)
+    fp = fingerprint_new_items(all_new_items, n=6)  # ex: A3F91C
+
+    # optional: show 1–2 product names in subject
+    top_names = []
+    for _, it in all_new_items[:2]:
+        nm = (it.get("name") or "").strip()
+        if nm:
+            top_names.append(nm[:22] + ("…" if len(nm) > 22 else ""))
+    names_part = " | ".join(top_names)
+
+    if all_new_items:
+        subject = f"{dot} {tag} Trendyol: " + " | ".join(subject_parts) + f" #{fp}"
+        if names_part:
+            subject += f" - {names_part}"
+    else:
+        subject = f"{dot} {tag} Trendyol: " + " | ".join(subject_parts)
 
     send_email(subject, "\n".join(lines))
 
-
 if __name__ == "__main__":
     main()
-
 
