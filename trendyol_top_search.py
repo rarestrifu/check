@@ -297,40 +297,100 @@ def load_base(filename: str) -> set:
     return keys
 
 
-def send_email(subject: str, text_body: str, html_body: str = None, inline_images=None):
-    """
-    inline_images: list of dicts: {cid, data, maintype, subtype}
-    """
-    msg = EmailMessage()
-    msg["From"] = EMAIL_USER
-    msg["To"] = EMAIL_TO
-    msg["Subject"] = subject
-
-    msg.set_content(text_body)
-
-    if html_body:
-        msg.add_alternative(html_body, subtype="html")
-        html_part = msg.get_payload()[-1]
-        if inline_images:
-            for im in inline_images:
-                html_part.add_related(
-                    im["data"],
-                    maintype=im["maintype"],
-                    subtype=im["subtype"],
-                    cid=im["cid"],
-                )
-
-    if not EMAIL_PASSWORD:
-        print("⚠ Missing GMAIL_APP_PASSWORD env var (email not sent).")
-        print("Subject would be:", subject)
-        print(text_body)
+def send_email(hits, label, price_threshold):
+    if not EMAIL_ENABLED:
         return
 
-    ctx = ssl.create_default_context()
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as s:
-        s.starttls(context=ctx)
-        s.login(EMAIL_USER, EMAIL_PASSWORD)
-        s.send_message(msg)
+    if not EMAIL_PASSWORD:
+        print("⚠ EMAIL password missing (set GMAIL_APP_PASSWORD env var)")
+        return
+
+    # Subject: verde dacă există hits, roșu dacă nu
+    if hits:
+        subject = f"🟢 Trendyol drops under {price_threshold} Lei [{label}] ({len(hits)})"
+    else:
+        subject = f"🔴 Trendyol no hits under {price_threshold} Lei [{label}]"
+
+    # -------- group by brand --------
+    hits_by_brand = defaultdict(list)
+    for item in (hits or []):
+        hits_by_brand[item.get("brand", "Unknown")].append(item)
+
+    for brand in hits_by_brand:
+        hits_by_brand[brand].sort(key=lambda x: float(x.get("new_price", 10**9)))
+
+    # -------- plain text fallback --------
+    if hits:
+        text_lines = [f"Big drops in category {label} (grouped by brand)\n"]
+        for brand, items in hits_by_brand.items():
+            text_lines.append(f"\n=== {brand.upper()} ===\n")
+            for it in items:
+                text_lines.append(
+                    f"- {it.get('name','')}\n"
+                    f"  NEW: {it.get('new_price')} Lei | OLD: {it.get('old_price')} Lei\n"
+                    f"  DROP: {it.get('drop_amount')} Lei ({it.get('drop_percent')}%)\n"
+                    f"  URL: {it.get('url')}\n"
+                )
+        plain_text = "\n".join(text_lines)
+    else:
+        plain_text = (
+            f"No products found under {price_threshold} Lei in [{label}].\n"
+            f"(This is an informational ping.)\n"
+        )
+
+    # -------- HTML (REMOTE images, NO CID) --------
+    msg = EmailMessage()
+    msg["From"] = EMAIL_FROM
+    msg["To"] = EMAIL_TO
+    msg["Subject"] = subject
+    msg.set_content(plain_text)
+
+    html_lines = [
+        f"<h2>{html.escape(label)} – threshold {html.escape(str(price_threshold))} Lei</h2>"
+    ]
+
+    if not hits:
+        html_lines.append("<p><b>No hits found.</b></p>")
+    else:
+        for brand, items in hits_by_brand.items():
+            html_lines.append(f"<h3>{html.escape(brand.upper())}</h3>")
+
+            for item in items:
+                name_html = html.escape(item.get("name", ""))
+                url = item.get("url", "")
+                url_html = html.escape(url, quote=True)
+
+                img_url = item.get("image") or ""
+                img_tag = ""
+                if isinstance(img_url, str) and img_url.startswith("http"):
+                    img_tag = (
+                        f'<img src="{html.escape(img_url, quote=True)}" '
+                        f'style="width:150px;display:block;margin-bottom:6px;" />'
+                    )
+
+                html_lines.append(
+                    f"""
+                    <div style="margin-bottom:20px;">
+                        {img_tag}
+                        <strong>{name_html}</strong><br>
+                        <b>NEW:</b> {item.get('new_price')} Lei &nbsp;
+                        <b>OLD:</b> {item.get('old_price')} Lei<br>
+                        <b>DROP:</b> {item.get('drop_amount')} Lei ({item.get('drop_percent')}%)<br>
+                        <a href="{url_html}">Open product</a>
+                        {"<br><small><a href='" + html.escape(img_url, quote=True) + "'>Image link</a></small>" if img_url.startswith("http") else ""}
+                    </div>
+                    """
+                )
+
+    msg.add_alternative("\n".join(html_lines), subtype="html")
+
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls(context=ctx)
+        server.login(EMAIL_USER, EMAIL_PASSWORD)
+        server.send_message(msg)
+
+    print(f"📧 Email sent for [{label}] (hits={len(hits) if hits else 0})")
 
 # ================= CORE =================
 
@@ -638,5 +698,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
