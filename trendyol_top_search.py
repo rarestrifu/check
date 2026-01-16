@@ -55,10 +55,34 @@ MAX_INLINE_IMAGES = 12
 
 CATEGORIES = {
     "boots": {
-        "listing": "https://www.trendyol.com/ro/sr?wc=1025&wb=369%2C300%2C156%2C44%2C33%2C101990%2C54%2C160%2C658%2C768&wg=2&sst=PRICE_BY_ASC",
+        "listing": "https://www.trendyol.com/en/sr?wc=1025&wb=369%2C768%2C156%2C300%2C101990%2C33%2C658%2C54%2C160%2C151014%2C44&wg=2&sst=PRICE_BY_ASC",
         "price_max": 150.0,
         "target": 25,
         "base_file": "boots_base.json",
+    },
+    "air_force": {
+        "listing": "https://www.trendyol.com/en/sr?wb=44&lc=1172&qt=nike%20air%20force&st=nike%20air%20force&os=1&sst=PRICE_BY_ASC&q=air%20force",
+        "price_max": 160.0,
+        "target": 25,
+        "base_file": "air_force.json",
+    },
+    "air_jordan": {
+        "listing": "https://www.trendyol.com/en/sr?wb=44&lc=1172&qt=nike%20air%20jordan&st=nike%20air%20jordan&os=1&sst=PRICE_BY_ASC&q=air%20jordan",
+        "price_max": 170.0,
+        "target": 25,
+        "base_file": "air_jordan.json",
+    },
+    "new_balance_530": {
+        "listing": "https://www.trendyol.com/en/sr?wb=128&lc=1172&vr=size%7C36_36-5_37_37-5_38_38-5_39-5_40_40-5_41_41-5_42_42-5_43_44_44-5_45_40-41&qt=new%20balance%20550&st=new%20balance%20530&os=1&sst=PRICE_BY_ASC&q=530",
+        "price_max": 160.0,
+        "target": 25,
+        "base_file": "new_balance_530.json",
+    },
+    "new_balance_550": {
+        "listing": "https://www.trendyol.com/en/sr?wb=128&lc=1172&vr=size%7C36_36-5_37_37-5_38_38-5_39-5_40_40-5_41_41-5_42_42-5_43_44_44-5_45_40-41&qt=new%20balance%20550&st=new%20balance%20530&os=1&sst=PRICE_BY_ASC&q=550",
+        "price_max": 160.0,
+        "target": 25,
+        "base_file": "new_balance_550.json",
     },
     "sneakers": {
         "listing": "https://www.trendyol.com/ro/sr?wc=1172&wb=44%2C54%2C300%2C172588&wg=2&dcr=20&sst=PRICE_BY_ASC",
@@ -604,3 +628,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
