@@ -48,7 +48,7 @@ EMAIL_USER = "bluegaming764@gmail.com"
 EMAIL_TO = "bluegaming764@gmail.com"
 EMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
 
-# Limit ca să nu faci email-uri uriașe
+# max imagini inline (restul vor avea doar link)
 MAX_INLINE_IMAGES = 12
 
 # ================= CATEGORIES =================
@@ -60,7 +60,6 @@ CATEGORIES = {
         "target": 25,
         "base_file": "boots_base.json",
     },
-    # EN version of your sneakers link (same params, just /en)
     "sneakers": {
         "listing": "https://www.trendyol.com/en/sr?wc=1172&wb=44%2C54%2C300%2C172588&wg=2&dcr=20&sst=PRICE_BY_ASC",
         "price_max": 140.0,
@@ -73,30 +72,24 @@ CATEGORIES = {
         "target": 25,
         "base_file": "air_force_base.json",
     },
-
     "air_jordan": {
         "listing": "https://www.trendyol.com/en/sr?lc=1172&wb=44&qt=nike%20air%20jordan&st=nike%20air%20jordan&os=1&sst=PRICE_BY_ASC&q=air%20jordan",
         "price_max": 170.0,
         "target": 25,
         "base_file": "air_jordan_base.json",
     },
-
-    # FIXED: qt/st/q aligned for 530
     "new_balance_530": {
         "listing": "https://www.trendyol.com/en/sr?lc=1172&wb=128&vr=size%7C36_36-5_37_37-5_38_38-5_39-5_40_40-5_41_41-5_42_42-5_43_44_44-5_45_40-41&qt=new%20balance%20530&st=new%20balance%20530&os=1&sst=PRICE_BY_ASC&q=530",
         "price_max": 160.0,
         "target": 25,
         "base_file": "new_balance_530_base.json",
     },
-
-    # FIXED: qt/st/q aligned for 550
     "new_balance_550": {
         "listing": "https://www.trendyol.com/en/sr?lc=1172&wb=128&vr=size%7C36_36-5_37_37-5_38_38-5_39-5_40_40-5_41_41-5_42_42-5_43_44_44-5_45_40-41&qt=new%20balance%20550&st=new%20balance%20550&os=1&sst=PRICE_BY_ASC&q=550",
         "price_max": 160.0,
         "target": 25,
         "base_file": "new_balance_550_base.json",
     },
-    # EN version of your jackets link (same params, just /en)
     "jackets": {
         "listing": "https://www.trendyol.com/en/sr?wc=118&wb=300%2C768%2C54%2C156%2C44%2C333%2C146279%2C33&wg=2&sst=PRICE_BY_ASC",
         "price_max": 140.0,
@@ -116,7 +109,6 @@ def clean_url(u: str) -> str:
     qs.pop("merchantId", None)
     return urlunparse((p.scheme, p.netloc, p.path, p.params, urlencode(qs, doseq=True), p.fragment))
 
-
 def fingerprint_new_items(all_new_items, n=6):
     if not all_new_items:
         return "NONE"
@@ -129,7 +121,6 @@ def fingerprint_new_items(all_new_items, n=6):
     blob = "\n".join(keys).encode("utf-8", errors="ignore")
     return hashlib.sha1(blob).hexdigest().upper()[:n]
 
-
 def normalize_url(u: str) -> str:
     if not u:
         return ""
@@ -137,10 +128,8 @@ def normalize_url(u: str) -> str:
         return u
     return "https://www.trendyol.com" + u
 
-
 def apply_code(price: float) -> float:
     return round(price * (1 - WELCOME_CODE_PERCENT / 100), 2)
-
 
 def parse_price(v):
     if isinstance(v, (int, float)):
@@ -149,7 +138,6 @@ def parse_price(v):
         return float(str(v).replace("Lei", "").replace(",", ".").replace(" ", ""))
     except Exception:
         return None
-
 
 def get_price(p: dict):
     for v in (
@@ -161,11 +149,6 @@ def get_price(p: dict):
         if val is not None:
             return val
     return None
-
-
-def get_model_id(p: dict):
-    return p.get("contentId") or p.get("id") or p.get("groupId")
-
 
 def accept_cookies(page):
     for sel in [
@@ -181,7 +164,6 @@ def accept_cookies(page):
         except Exception:
             pass
 
-
 def normalize_image_url(u: str):
     if not u:
         return None
@@ -194,16 +176,8 @@ def normalize_image_url(u: str):
         u = "https://www.trendyol.com" + u
     return u
 
-
 def extract_image_url(p: dict):
-    """
-    În payload, imaginile pot fi în:
-    - imageUrl / thumbnailUrl / image
-    - images[0].url / images[0].path
-    - imageUrls[0]
-    """
     candidates = []
-
     for key in ("imageUrl", "thumbnailUrl", "image"):
         v = p.get(key)
         if isinstance(v, dict):
@@ -223,29 +197,23 @@ def extract_image_url(p: dict):
         u = normalize_image_url(c)
         if u and u.startswith("https://"):
             return u
-    return None
-
+    return ""
 
 def download_image_bytes(url: str):
-    """
-    Descarcă imaginea ca bytes pentru CID inline.
-    """
     try:
         req = Request(url, headers={"User-Agent": UA})
         with urlopen(req, timeout=20) as r:
             data = r.read()
-            ctype = r.headers.get_content_type()  # ex: image/jpeg
+            ctype = r.headers.get_content_type()
             return data, ctype
     except Exception:
         return None, None
-
 
 def build_api_url(listing_url: str, pi: int) -> str:
     qs = dict(parse_qsl(urlparse(listing_url).query))
     qs.update(API_EXTRA_PARAMS)
     qs["pi"] = str(pi)
     return API_BASE + "?" + urlencode(qs, doseq=True)
-
 
 def fetch_products_page(page, listing_url: str, pi: int):
     api_url = build_api_url(listing_url, pi)
@@ -278,7 +246,6 @@ def fetch_products_page(page, listing_url: str, pi: int):
     """
     return page.evaluate(js, api_url)
 
-
 def load_base(filename: str) -> set:
     path = os.path.join(STATE_DIR, filename)
     with open(path, "r", encoding="utf-8") as f:
@@ -293,119 +260,48 @@ def load_base(filename: str) -> set:
                     keys.add(clean_url(u))
     return keys
 
+# ========= THE ONLY send_email (NEW SIGNATURE) =========
 
-def send_email(hits, label, price_threshold):
-    if not EMAIL_ENABLED:
-        return
-
+def send_email(subject: str, text_body: str, html_body: str, inline_images: list):
     if not EMAIL_PASSWORD:
-        print("⚠ EMAIL password missing (set GMAIL_APP_PASSWORD env var)")
+        print("⚠ GMAIL_APP_PASSWORD missing in env/secrets")
         return
 
-    # Subject: verde dacă există hits, roșu dacă nu
-    if hits:
-        subject = f"🟢 Trendyol drops under {price_threshold} Lei [{label}] ({len(hits)})"
-    else:
-        subject = f"🔴 Trendyol no hits under {price_threshold} Lei [{label}]"
-
-    # -------- group by brand --------
-    hits_by_brand = defaultdict(list)
-    for item in (hits or []):
-        hits_by_brand[item.get("brand", "Unknown")].append(item)
-
-    for brand in hits_by_brand:
-        hits_by_brand[brand].sort(key=lambda x: float(x.get("new_price", 10**9)))
-
-    # -------- plain text fallback --------
-    if hits:
-        text_lines = [f"Big drops in category {label} (grouped by brand)\n"]
-        for brand, items in hits_by_brand.items():
-            text_lines.append(f"\n=== {brand.upper()} ===\n")
-            for it in items:
-                text_lines.append(
-                    f"- {it.get('name','')}\n"
-                    f"  NEW: {it.get('new_price')} Lei | OLD: {it.get('old_price')} Lei\n"
-                    f"  DROP: {it.get('drop_amount')} Lei ({it.get('drop_percent')}%)\n"
-                    f"  URL: {it.get('url')}\n"
-                )
-        plain_text = "\n".join(text_lines)
-    else:
-        plain_text = (
-            f"No products found under {price_threshold} Lei in [{label}].\n"
-            f"(This is an informational ping.)\n"
-        )
-
-    # -------- HTML (REMOTE images, NO CID) --------
     msg = EmailMessage()
-    msg["From"] = EMAIL_FROM
+    msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_TO
     msg["Subject"] = subject
-    msg.set_content(plain_text)
+    msg.set_content(text_body)
 
-    html_lines = [
-        f"<h2>{html.escape(label)} – threshold {html.escape(str(price_threshold))} Lei</h2>"
-    ]
+    msg.add_alternative(html_body, subtype="html")
+    html_part = msg.get_payload()[-1]
 
-    if not hits:
-        html_lines.append("<p><b>No hits found.</b></p>")
-    else:
-        for brand, items in hits_by_brand.items():
-            html_lines.append(f"<h3>{html.escape(brand.upper())}</h3>")
+    for img in inline_images:
+        html_part.add_related(
+            img["data"],
+            maintype=img["maintype"],
+            subtype=img["subtype"],
+            cid=img["cid"],
+        )
 
-            for item in items:
-                name_html = html.escape(item.get("name", ""))
-                url = item.get("url", "")
-                url_html = html.escape(url, quote=True)
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as s:
+        s.starttls(context=ctx)
+        s.login(EMAIL_USER, EMAIL_PASSWORD)
+        s.send_message(msg)
 
-                img_url = item.get("image") or ""
-                img_tag = ""
-                if isinstance(img_url, str) and img_url.startswith("http"):
-                    img_tag = (
-                        f'<img src="{html.escape(img_url, quote=True)}" '
-                        f'style="width:150px;display:block;margin-bottom:6px;" />'
-                    )
-
-                html_lines.append(
-                    f"""
-                    <div style="margin-bottom:20px;">
-                        {img_tag}
-                        <strong>{name_html}</strong><br>
-                        <b>NEW:</b> {item.get('new_price')} Lei &nbsp;
-                        <b>OLD:</b> {item.get('old_price')} Lei<br>
-                        <b>DROP:</b> {item.get('drop_amount')} Lei ({item.get('drop_percent')}%)<br>
-                        <a href="{url_html}">Open product</a>
-                        {"<br><small><a href='" + html.escape(img_url, quote=True) + "'>Image link</a></small>" if img_url.startswith("http") else ""}
-                    </div>
-                    """
-                )
-
-    msg.add_alternative("\n".join(html_lines), subtype="html")
-
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls(context=ctx)
-        server.login(EMAIL_USER, EMAIL_PASSWORD)
-        server.send_message(msg)
-
-    print(f"📧 Email sent for [{label}] (hits={len(hits) if hits else 0})")
+    print("📧 Email sent:", subject)
 
 # ================= CORE =================
 
 def collect_current(page, cfg):
-    """
-    Returns (items, status, stats)
-    status: ok | empty_api | filtered_empty | http_error
-    """
     page.goto("https://www.trendyol.com/ro", timeout=120000, wait_until="domcontentloaded")
-    page.wait_for_timeout(1200)
+    page.wait_for_timeout(900)
     accept_cookies(page)
-    page.wait_for_timeout(400)
 
     page.goto(cfg["listing"], timeout=120000, wait_until="domcontentloaded")
     page.wait_for_timeout(1200)
     accept_cookies(page)
-    page.wait_for_timeout(400)
-    page.wait_for_timeout(700)
 
     seen = set()
     results = []
@@ -417,7 +313,6 @@ def collect_current(page, cfg):
         "dup": 0,
         "price_none": 0,
         "over_max": 0,
-        "sample_price_fields": None,
     }
 
     any_batch = False
@@ -439,20 +334,11 @@ def collect_current(page, cfg):
 
         stats["batch_products"] += len(batch)
 
-        if stats["sample_price_fields"] is None and len(batch) > 0:
-            p0 = batch[0]
-            stats["sample_price_fields"] = {
-                "has_rrp": bool(p0.get("recommendedRetailPrice")),
-                "rrp_keys": list((p0.get("recommendedRetailPrice") or {}).keys())[:8],
-                "has_price": bool(p0.get("price")),
-                "price_keys": list((p0.get("price") or {}).keys())[:8],
-            }
-
         for pr in batch:
             if len(results) >= cfg["target"]:
                 return results, "ok", stats
 
-            pid = get_model_id(pr)
+            pid = pr.get("contentId") or pr.get("id") or pr.get("groupId")
             if not pid:
                 continue
             if pid in seen:
@@ -485,14 +371,12 @@ def collect_current(page, cfg):
             })
             stats["added"] += 1
 
-        time.sleep(0.5)
+        time.sleep(0.4)
 
     if not any_batch:
         return [], "empty_api", stats
-
     if len(results) == 0:
         return [], "filtered_empty", stats
-
     return results, "ok", stats
 
 # ================= MAIN =================
@@ -505,11 +389,14 @@ def main():
     all_new_items = []  # (label, item)
     blocked_labels = []
 
+    # debug list
+    if os.path.isdir(STATE_DIR):
+        summary_lines.append(f"[DEBUG] state files: {sorted(os.listdir(STATE_DIR))}")
+    else:
+        summary_lines.append("[DEBUG] state dir missing")
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
 
         for label, cfg in CATEGORIES.items():
             base_path = os.path.join(STATE_DIR, cfg["base_file"])
@@ -531,9 +418,7 @@ def main():
                 timezone_id="Europe/Bucharest",
                 viewport={"width": 1366, "height": 768},
             )
-            context.set_extra_http_headers({
-                "Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7",
-            })
+            context.set_extra_http_headers({"Accept-Language": "ro-RO,ro;q=0.9,en-US;q=0.8,en;q=0.7"})
             page = context.new_page()
 
             current = []
@@ -555,69 +440,49 @@ def main():
                     f"[{label}] {status} items={len(current)} | "
                     f"api_pages={stats.get('api_pages')} batch={stats.get('batch_products')} "
                     f"added={stats.get('added')} price_none={stats.get('price_none')} "
-                    f"over_max={stats.get('over_max')} dup={stats.get('dup')}"
+                    f"over_max={stats.get('over_max')} dup={stats.get('dup')} "
+                    f"http={stats.get('http_status')} err={stats.get('error','')}"
                 )
                 blocked_labels.append(label)
                 continue
 
             current_set = {p["key"] for p in current}
             new_items = [p for p in current if p["key"] not in base_set]
+            missing_vs_base = len(base_set - current_set)
 
             summary_lines.append(
-                f"[{label}] OK items={len(current)} new={len(new_items)} missing_vs_base={len(base_set - current_set)} | "
+                f"[{label}] OK items={len(current)} new={len(new_items)} missing_vs_base={missing_vs_base} | "
                 f"api_pages={stats.get('api_pages')} batch={stats.get('batch_products')} added={stats.get('added')}"
             )
 
             for it in new_items:
                 all_new_items.append((label, it))
 
-            time.sleep(2)
+            time.sleep(1)
 
         browser.close()
 
-    # ====== SUBJECT ======
-    subject_parts = []
-    if all_new_items:
-        subject_parts.append(f"NEW {len(all_new_items)}")
-    else:
-        subject_parts.append("NO NEW")
-
+    # ===== SUBJECT =====
+    parts = [f"NEW {len(all_new_items)}" if all_new_items else "NO NEW"]
     if blocked_labels:
-        subject_parts.append(f"BLOCKED {len(blocked_labels)}")
+        parts.append(f"BLOCKED {len(blocked_labels)}")
 
     if all_new_items:
-        dot = "🟢"
-        tag = "[NEW]"
+        dot, tag = "🟢", "[NEW]"
     elif blocked_labels:
-        dot = "🟠"
-        tag = "[BLOCKED]"
+        dot, tag = "🟠", "[BLOCKED]"
     else:
-        dot = "🔴"
-        tag = "[NO-NEW]"
+        dot, tag = "🔴", "[NO-NEW]"
 
     fp = fingerprint_new_items(all_new_items, n=6)
-
-    top_names = []
-    for _, it in all_new_items[:2]:
-        nm = (it.get("name") or "").strip()
-        if nm:
-            top_names.append(nm[:22] + ("…" if len(nm) > 22 else ""))
-    names_part = " | ".join(top_names)
-
+    subject = f"{dot} {tag} Trendyol: " + " | ".join(parts)
     if all_new_items:
-        subject = f"{dot} {tag} Trendyol: " + " | ".join(subject_parts) + f" #{fp}"
-        if names_part:
-            subject += f" - {names_part}"
-    else:
-        subject = f"{dot} {tag} Trendyol: " + " | ".join(subject_parts)
+        subject += f" #{fp}"
 
-    # ====== EMAIL BODY (text + html) ======
-    text_lines = []
-    text_lines.append(f"Trendyol run report @ {run_ts}\n")
-    if summary_lines:
-        text_lines.append("Summary:")
-        text_lines.extend(summary_lines)
-        text_lines.append("")
+    # ===== TEXT BODY =====
+    text_lines = [f"Trendyol run report @ {run_ts}", "", "Summary:"]
+    text_lines.extend(summary_lines)
+    text_lines.append("")
 
     if all_new_items:
         text_lines.append(f"NEW ITEMS TOTAL: {len(all_new_items)}\n")
@@ -626,38 +491,38 @@ def main():
     else:
         text_lines.append("NO NEW ITEMS found this run.")
 
-    # HTML + inline images
-    html_lines = []
-    html_lines.append(f"<h2>Trendyol run report</h2>")
-    html_lines.append(f"<div><b>Time:</b> {html_escape.escape(run_ts)}</div>")
-    html_lines.append("<hr>")
-
-    if summary_lines:
-        html_lines.append("<h3>Summary</h3><pre style='white-space:pre-wrap'>")
-        html_lines.append(html_escape.escape("\n".join(summary_lines)))
-        html_lines.append("</pre><hr>")
+    # ===== HTML BODY + INLINE IMAGES =====
+    html_lines = [
+        "<h2>Trendyol run report</h2>",
+        f"<div><b>Time:</b> {html_escape.escape(run_ts)}</div>",
+        "<hr>",
+        "<h3>Summary</h3>",
+        "<pre style='white-space:pre-wrap'>",
+        html_escape.escape("\n".join(summary_lines)),
+        "</pre>",
+        "<hr>",
+    ]
 
     inline_images = []
-    cid_map = {}  # image_url -> cid_ref (without <>)
+    cid_map = {}
+    shown = 0
 
     if all_new_items:
         html_lines.append(f"<h3>NEW ITEMS TOTAL: {len(all_new_items)}</h3>")
-
-        # Limit pentru inline ca să nu devină uriaș emailul
-        shown = 0
         for label, it in all_new_items:
             name = html_escape.escape(it.get("name", ""))
             url = html_escape.escape(it.get("url", ""), quote=True)
-            img_url = it.get("image") or ""
+            img_url = (it.get("image") or "").strip()
 
             img_html = ""
+            # inline doar primele MAX_INLINE_IMAGES
             if img_url and shown < MAX_INLINE_IMAGES:
                 if img_url not in cid_map:
                     data, ctype = download_image_bytes(img_url)
                     if data and ctype and ctype.startswith("image/"):
                         maintype, subtype = ctype.split("/", 1)
-                        cid = make_msgid()          # "<...@...>"
-                        cid_ref = cid[1:-1]         # fără <>
+                        cid = make_msgid()
+                        cid_ref = cid[1:-1]
                         cid_map[img_url] = cid_ref
                         inline_images.append({
                             "cid": cid,
@@ -671,6 +536,10 @@ def main():
                         f"style='width:160px;height:auto;border-radius:10px;display:block;margin:6px 0;'>"
                     )
                     shown += 1
+            # pentru restul, arătăm doar link către imagine (dacă există)
+            img_link = ""
+            if img_url and not img_html:
+                img_link = f"<div style='font-size:12px;opacity:0.75'><a href='{html_escape.escape(img_url, quote=True)}'>image link</a></div>"
 
             html_lines.append(
                 f"""
@@ -679,6 +548,7 @@ def main():
                   {img_html}
                   <div style="font-weight:700;margin-top:6px">{name}</div>
                   <div><a href="{url}">Open product</a></div>
+                  {img_link}
                 </div>
                 """
             )
@@ -692,11 +562,5 @@ def main():
         inline_images=inline_images,
     )
 
-
 if __name__ == "__main__":
     main()
-
-
-
-
-
