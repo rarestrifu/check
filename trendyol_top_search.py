@@ -78,18 +78,6 @@ CATEGORIES = {
         "target": 25,
         "base_file": "air_jordan_base.json",
     },
-    "new_balance_530": {
-        "listing": "https://www.trendyol.com/en/sr?lc=1172&wb=128&vr=size%7C36_36-5_37_37-5_38_38-5_39-5_40_40-5_41_41-5_42_42-5_43_44_44-5_45_40-41&qt=new%20balance%20530&st=new%20balance%20530&os=1&sst=PRICE_BY_ASC&q=530",
-        "price_max": 160.0,
-        "target": 25,
-        "base_file": "new_balance_530_base.json",
-    },
-    "new_balance_550": {
-        "listing": "https://www.trendyol.com/en/sr?lc=1172&wb=128&vr=size%7C36_36-5_37_37-5_38_38-5_39-5_40_40-5_41_41-5_42_42-5_43_44_44-5_45_40-41&qt=new%20balance%20550&st=new%20balance%20550&os=1&sst=PRICE_BY_ASC&q=550",
-        "price_max": 160.0,
-        "target": 25,
-        "base_file": "new_balance_550_base.json",
-    },
     "jackets": {
         "listing": "https://www.trendyol.com/en/sr?wc=118&wb=300%2C768%2C54%2C156%2C44%2C333%2C146279%2C33&wg=2&sst=PRICE_BY_ASC",
         "price_max": 140.0,
@@ -564,3 +552,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
