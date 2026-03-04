@@ -54,12 +54,6 @@ MAX_INLINE_IMAGES = 12
 # ================= CATEGORIES =================
 
 CATEGORIES = {
-    "boots": {
-        "listing": "https://www.trendyol.com/en/sr?wc=1025&wb=369%2C768%2C156%2C300%2C101990%2C33%2C658%2C54%2C160%2C151014%2C44&wg=2&sst=PRICE_BY_ASC",
-        "price_max": 150.0,
-        "target": 25,
-        "base_file": "boots_base.json",
-    },
     "sneakers": {
         "listing": "https://www.trendyol.com/en/sr?wc=1172&wb=44%2C54%2C300%2C172588&wg=2&dcr=20&sst=PRICE_BY_ASC",
         "price_max": 140.0,
@@ -77,13 +71,7 @@ CATEGORIES = {
         "price_max": 170.0,
         "target": 25,
         "base_file": "air_jordan_base.json",
-    },
-    "jackets": {
-        "listing": "https://www.trendyol.com/en/sr?wc=118&wb=300%2C768%2C54%2C156%2C44%2C333%2C146279%2C33&wg=2&sst=PRICE_BY_ASC",
-        "price_max": 140.0,
-        "target": 25,
-        "base_file": "jackets_base.json",
-    },
+    }
 }
 
 # ================= HELPERS =================
@@ -552,4 +540,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
